@@ -31,6 +31,11 @@ DEFINES += -DENABLE_ASYLUM=$(ENABLE_ASYLUM)
 MODULES += engines/asylum
 endif
 
+ifdef ENABLE_CGE
+DEFINES += -DENABLE_CGE=$(ENABLE_CGE)
+MODULES += engines/cge
+endif
+
 ifdef ENABLE_CINE
 DEFINES += -DENABLE_CINE=$(ENABLE_CINE)
 MODULES += engines/cine

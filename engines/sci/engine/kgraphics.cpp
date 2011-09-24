@@ -49,6 +49,7 @@
 #include "sci/graphics/text16.h"
 #include "sci/graphics/view.h"
 #ifdef ENABLE_SCI32
+#include "sci/graphics/text32.h"
 #include "sci/graphics/frameout.h"
 #include "sci/video/robot_decoder.h"
 #endif
@@ -1321,10 +1322,10 @@ reg_t kRepaintPlane(EngineState *s, int argc, reg_t *argv) {
 reg_t kAddPicAt(EngineState *s, int argc, reg_t *argv) {
 	reg_t planeObj = argv[0];
 	GuiResourceId pictureId = argv[1].toUint16();
-	int16 forWidth = argv[2].toSint16();
-	// argv[3] seems to be 0 most of the time
+	int16 pictureX = argv[2].toSint16();
+	int16 pictureY = argv[3].toSint16();
 
-	g_sci->_gfxFrameout->kernelAddPicAt(planeObj, forWidth, pictureId);
+	g_sci->_gfxFrameout->kernelAddPicAt(planeObj, pictureId, pictureX, pictureY);
 	return s->r_acc;
 }
 
@@ -1333,12 +1334,7 @@ reg_t kGetHighPlanePri(EngineState *s, int argc, reg_t *argv) {
 }
 
 reg_t kFrameOut(EngineState *s, int argc, reg_t *argv) {
-	// This kernel call likely seems to be doing the screen updates,
-	// as its called right after a view is updated
-
-	// TODO
 	g_sci->_gfxFrameout->kernelFrameout();
-
 	return NULL_REG;
 }
 
@@ -1380,15 +1376,19 @@ reg_t kIsOnMe(EngineState *s, int argc, reg_t *argv) {
 }
 
 reg_t kCreateTextBitmap(EngineState *s, int argc, reg_t *argv) {
-	// TODO: argument 0 is usually 0, and arguments 1 and 2 are usually 1
 	switch (argv[0].toUint16()) {
 	case 0: {
 		if (argc != 4) {
 			warning("kCreateTextBitmap(0): expected 4 arguments, got %i", argc);
 			return NULL_REG;
 		}
-		//reg_t object = argv[3];
-		//Common::String text = s->_segMan->getString(readSelector(s->_segMan, object, SELECTOR(text)));
+		reg_t object = argv[3];
+		Common::String text = s->_segMan->getString(readSelector(s->_segMan, object, SELECTOR(text)));
+		debugC(kDebugLevelStrings, "kCreateTextBitmap case 0 (%04x:%04x, %04x:%04x, %04x:%04x)",
+				PRINT_REG(argv[1]), PRINT_REG(argv[2]), PRINT_REG(argv[3]));
+		debugC(kDebugLevelStrings, "%s", text.c_str());
+		// TODO: arguments 1 and 2
+		g_sci->_gfxText32->createTextBitmap(object);
 		break;
 	}
 	case 1: {
@@ -1396,8 +1396,11 @@ reg_t kCreateTextBitmap(EngineState *s, int argc, reg_t *argv) {
 			warning("kCreateTextBitmap(0): expected 2 arguments, got %i", argc);
 			return NULL_REG;
 		}
-		//reg_t object = argv[1];
-		//Common::String text = s->_segMan->getString(readSelector(s->_segMan, object, SELECTOR(text)));
+		reg_t object = argv[1];
+		Common::String text = s->_segMan->getString(readSelector(s->_segMan, object, SELECTOR(text)));
+		debugC(kDebugLevelStrings, "kCreateTextBitmap case 1 (%04x:%04x)", PRINT_REG(argv[1]));
+		debugC(kDebugLevelStrings, "%s", text.c_str());
+		g_sci->_gfxText32->createTextBitmap(object);
 		break;
 	}
 	default:

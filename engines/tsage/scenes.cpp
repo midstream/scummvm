@@ -20,16 +20,17 @@
  *
  */
 
+#include "common/config-manager.h"
+#include "common/translation.h"
+#include "gui/saveload.h"
 #include "tsage/scenes.h"
 #include "tsage/globals.h"
-#include "tsage/ringworld_logic.h"
+#include "tsage/ringworld/ringworld_logic.h"
 #include "tsage/tsage.h"
 #include "tsage/saveload.h"
+#include "tsage/staticres.h"
 
-namespace tSage {
-
-// TODO: Doesn't seem to be ever set
-const bool _v52C9F = false;
+namespace TsAGE {
 
 SceneManager::SceneManager() {
 	_scene = NULL;
@@ -41,6 +42,7 @@ SceneManager::SceneManager() {
 	_scrollerRect = Rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
 	_saver->addListener(this);
 	_objectCount = 0;
+	_loadMode = 0;
 }
 
 SceneManager::~SceneManager() {
@@ -79,12 +81,7 @@ void SceneManager::sceneChange() {
 	}
 
 	// Clear the secondary scene object list
-	io = _globals->_sceneManager._altSceneObjects.begin();
-	while (io != _globals->_sceneManager._altSceneObjects.end()) {
-		SceneObject *sceneObj = *io;
-		++io;
-		sceneObj->removeObject();
-	}
+	_bgSceneObjects.clear();
 
 	// Clear the hotspot list
 	SynchronizedList<SceneItem *>::iterator ii = _globals->_sceneItems.begin();
@@ -116,7 +113,7 @@ void SceneManager::sceneChange() {
 		assert(_objectCount == _saver->getObjectCount());
 	}
 	_objectCount = _saver->getObjectCount();
-	_globals->_sceneHandler._delayTicks = 2;
+	_globals->_sceneHandler->_delayTicks = 2;
 
 	// Instantiate and set the new scene
 	_scene = getNewScene();
@@ -237,7 +234,7 @@ void SceneManager::listenerSynchronize(Serializer &s) {
 		// in order for the savegame loading to work correctly
 		_globals->_sceneManager._scene = new Scene();
 
-	_altSceneObjects.synchronize(s);
+	_bgSceneObjects.synchronize(s);
 	s.syncAsSint32LE(_sceneNumber);
 	s.syncAsUint16LE(_globals->_sceneManager._scene->_activeScreenNumber);
 
@@ -260,6 +257,7 @@ void SceneManager::listenerSynchronize(Serializer &s) {
 Scene::Scene() : _sceneBounds(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT),
 			_backgroundBounds(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT) {
 	_sceneMode = 0;
+	_activeScreenNumber = 0;
 	_oldSceneBounds = Rect(4000, 4000, 4100, 4100);
 	Common::set_to(&_zoomPercents[0], &_zoomPercents[256], 0);
 }
@@ -427,6 +425,11 @@ void Scene::refreshBackground(int xAmount, int yAmount) {
 								(xSectionSrc + 1) * 160, (ySectionSrc + 1) * 100);
 						Rect destBounds(xSectionDest * 160, ySectionDest * 100,
 								(xSectionDest + 1) * 160, (ySectionDest + 1) * 100);
+						if (_vm->getGameID() == GType_BlueForce) {
+							// For Blue Force, if the scene has an interface area, exclude it from the copy
+							srcBounds.bottom = MIN<int16>(srcBounds.bottom, BF_GLOBALS._interfaceY);
+							destBounds.bottom = MIN<int16>(destBounds.bottom, BF_GLOBALS._interfaceY);
+						}
 
 						_backSurface.copyFrom(_backSurface, srcBounds, destBounds);
 					}
@@ -439,16 +442,16 @@ void Scene::refreshBackground(int xAmount, int yAmount) {
 	}
 
 	if (changedFlag) {
-		drawAltObjects();
+		drawBackgroundObjects();
 	}
 }
 
-void Scene::drawAltObjects() {
+void Scene::drawBackgroundObjects() {
 	Common::Array<SceneObject *> objList;
 
 	// Initial loop to set the priority for entries in the list
-	for (SynchronizedList<SceneObject *>::iterator i = _globals->_sceneManager._altSceneObjects.begin();
-		i != _globals->_sceneManager._altSceneObjects.end(); ++i) {
+	for (SynchronizedList<SceneObject *>::iterator i = _globals->_sceneManager._bgSceneObjects.begin();
+		i != _globals->_sceneManager._bgSceneObjects.end(); ++i) {
 		SceneObject *obj = *i;
 		objList.push_back(obj);
 
@@ -460,7 +463,7 @@ void Scene::drawAltObjects() {
 	}
 
 	// Sort the list by priority
-	_globals->_sceneManager._altSceneObjects.sortList(objList);
+	_globals->_sceneManager._bgSceneObjects.sortList(objList);
 
 	// Drawing loop
 	for (uint objIndex = 0; objIndex < objList.size(); ++objIndex) {
@@ -504,12 +507,52 @@ void Scene::setZoomPercents(int yStart, int minPercent, int yEnd, int maxPercent
 		_zoomPercents[yEnd++] = minPercent;
 }
 
-byte *Scene::preloadVisage(int resNum) {
-	assert(!_v52C9F);
-	return _resourceManager->getResource(RES_VISAGE, resNum, 9999, false);
+/*--------------------------------------------------------------------------*/
+
+void Game::restartGame() {
+	if (MessageDialog::show(RESTART_MSG, CANCEL_BTN_STRING, RESTART_BTN_STRING) == 1)
+		_globals->_game->restart();
 }
 
-/*--------------------------------------------------------------------------*/
+void Game::saveGame() {
+	if (!_vm->canSaveGameStateCurrently())
+		MessageDialog::show(SAVING_NOT_ALLOWED_MSG, OK_BTN_STRING);
+	else {
+		// Show the save dialog
+		handleSaveLoad(true, _globals->_sceneHandler->_saveGameSlot, _globals->_sceneHandler->_saveName);
+	}
+}
+
+void Game::restoreGame() {
+	if (!_vm->canLoadGameStateCurrently())
+		MessageDialog::show(RESTORING_NOT_ALLOWED_MSG, OK_BTN_STRING);
+	else {
+		// Show the load dialog
+		handleSaveLoad(false, _globals->_sceneHandler->_loadGameSlot, _globals->_sceneHandler->_saveName);
+	}
+}
+
+void Game::quitGame() {
+	if (MessageDialog::show(QUIT_CONFIRM_MSG, CANCEL_BTN_STRING, QUIT_BTN_STRING) == 1)
+		_vm->quitGame();
+}
+
+void Game::handleSaveLoad(bool saveFlag, int &saveSlot, Common::String &saveName) {
+	const EnginePlugin *plugin = 0;
+	EngineMan.findGame(_vm->getGameId(), &plugin);
+	GUI::SaveLoadChooser *dialog;
+	if (saveFlag)
+		dialog = new GUI::SaveLoadChooser(_("Save game:"), _("Save"));
+	else
+		dialog = new GUI::SaveLoadChooser(_("Load game:"), _("Load"));
+
+	dialog->setSaveMode(saveFlag);
+
+	saveSlot = dialog->runModalWithPluginAndTarget(plugin, ConfMan.getActiveDomainName());
+	saveName = dialog->getResultString();
+
+	delete dialog;
+}
 
 void Game::execute() {
 	// Main game loop
@@ -527,4 +570,4 @@ void Game::execute() {
 	} while (activeFlag && !_vm->shouldQuit());
 }
 
-} // End of namespace tSage
+} // End of namespace TsAGE

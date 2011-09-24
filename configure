@@ -84,6 +84,7 @@ add_engine agi "AGI" yes
 add_engine agos "AGOS" yes "agos2"
 add_engine agos2 "AGOS 2 games" yes
 add_engine asylum "Sanitarium" no
+add_engine cge "CGE" no
 add_engine cine "Cinematique evo 1" yes
 add_engine composer "Magic Composer" no
 add_engine cruise "Cinematique evo 2" yes
@@ -194,7 +195,6 @@ _posix=no
 _endian=unknown
 _need_memalign=yes
 _have_x86=no
-_arm_asm=no
 
 
 
@@ -707,7 +707,7 @@ Usage: $0 [OPTIONS]...
 
 Configuration:
   -h, --help              display this help and exit
-  --backend=BACKEND       backend to build (android, dc, dingux, ds, gp2x, gph,
+  --backend=BACKEND       backend to build (android, bada, dc, dingux, ds, gp2x, gph,
                           iphone, linuxmoto, maemo, n64, null, openpandora, ps2,
                           psp, samsungtv, sdl, webos, wii, wince) [sdl]
 
@@ -736,6 +736,7 @@ Fine tuning of the installation directories:
 Special configuration feature:
   --host=HOST             cross-compile to target HOST (arm-linux, ...)
                           special targets: android for Android
+                                           bada for Samsung BADA
                                            caanoo for Caanoo
                                            dingux for Dingux
                                            dreamcast for Sega Dreamcast
@@ -745,6 +746,7 @@ Special configuration feature:
                                            gp2xwiz for GP2X Wiz
                                            iphone for Apple iPhone
                                            linupy for Yopy PDA
+                                           maemo for Nokia Maemo
                                            motoezx for MotoEZX
                                            motomagx for MotoMAGX
                                            n64 for Nintendo 64
@@ -1071,6 +1073,16 @@ arm-riscos)
 	_host_os=riscos
 	_host_cpu=arm
 	;;
+bada)
+	_host_os=bada
+	if test "$_debug_build" = yes; then
+		_host_cpu=i686
+		_host_alias=i686-mingw32
+	else
+		_host_cpu=arm
+		_host_alias=arm-samsung-nucleuseabi
+	fi
+	;;
 caanoo)
 	_host_os=gph-linux
 	_host_cpu=arm
@@ -1121,6 +1133,22 @@ linupy)
 	_host_os=linux
 	_host_cpu=arm
 	;;
+maemo)
+	_host_os=maemo
+	_host_cpu=arm
+	_host_alias=arm-linux
+
+	# The prefix is always the same on Maemo so we hardcode the default
+	# here. It is still possible to define a custom prefix which is
+	# needed when packaging the app with a user-specific app ID.
+	test "x$prefix" = xNONE && prefix=/opt/scummvm
+	# Maemo apps are installed into app-specific directories. The
+	# default directory structure of ScummVM makes no sense here so we
+	# hardcode Maemo specific directories here.
+	datarootdir='${prefix}/share'
+	datadir=/opt/scummvm/share
+	docdir='${datarootdir}/doc/scummvm'
+	;;
 motoezx)
 	_host_os=linux
 	_host_cpu=arm
@@ -1158,12 +1186,12 @@ ps3)
 	_host_os=ps3
 	_host_cpu=ppc
 	_host_alias=powerpc64-ps3-elf
-	
+
 	# The prefix is always the same on PS3 so we hardcode the default
 	# here. It is still possible to define a custom prefix which is
 	# needed when packaging the app with a user-specific app ID.
 	test "x$prefix" = xNONE && prefix=/dev_hdd0/game/SCUM12000/USRDIR
-	# PS3 apps are installed into app-specific directories. The 
+	# PS3 apps are installed into app-specific directories. The
 	# default directory structure of ScummVM makes no sense here so we
 	# hardcode PS3 specific directories here.
 	datarootdir='${prefix}/data'
@@ -1188,7 +1216,7 @@ webos)
 	# here. It is still possible to define a custom prefix which is
 	# needed when packaging the app with a user-specific app ID.
 	test "x$prefix" = xNONE && prefix=/media/cryptofs/apps/usr/palm/applications/org.scummvm.scummvm
-	# WebOS apps are installed into app-specific directories. The 
+	# WebOS apps are installed into app-specific directories. The
 	# default directory structure of ScummVM makes no sense here so we
 	# hardcode WebOS specific directories here.
 	datarootdir='${prefix}/data'
@@ -1290,6 +1318,12 @@ android)
 	fi
 	if test -z "$ANDROID_NDK"; then
 		echo "Please set ANDROID_NDK in your environment. export ANDROID_NDK=<path to Android NDK>"
+		exit 1
+	fi
+	;;
+bada)
+	if test -z "$BADA_SDK"; then
+		echo "Please set BADA_SDK in your environment. export BADA_SDK=<path to Bada SDK>"
 		exit 1
 	fi
 	;;
@@ -1509,7 +1543,7 @@ if test "$have_gcc" = yes ; then
 		case $_host_os in
 		# newlib-based system include files suppress non-C89 function
 		# declarations under __STRICT_ANSI__
-		amigaos* | android | dreamcast | ds | gamecube | mingw* | n64 | psp | ps2 | ps3 | wii | wince )
+		amigaos* | android | bada | dreamcast | ds | gamecube | mingw* | n64 | psp | ps2 | ps3 | wii | wince )
 			;;
 		*)
 			CXXFLAGS="$CXXFLAGS -ansi"
@@ -1687,38 +1721,40 @@ echo "$_need_memalign"
 define_in_config_h_if_yes $_need_memalign 'SCUMM_NEED_ALIGNMENT'
 
 #
-# Check whether we can use x86 asm routines
+# Check the CPU architecture
 #
-echo_n "Compiling for x86... "
-case $_host_cpu in
-	i386|i486|i586|i686)
-		_have_x86=yes
-		;;
-	*)
-		_have_x86=no
-		;;
-esac
-echo "$_have_x86"
-define_in_config_h_if_yes $_have_x86 'HAVE_X86'
-
-#
-# Check whether to use optimized ARM asm
-#
-echo_n "Compiling for ARM... "
+echo_n "Checking host CPU architecture... "
 case $_host_cpu in
 	arm*)
-		_arm_asm=yes
+		echo "ARM"
+		define_in_config_if_yes yes 'USE_ARM_SCALER_ASM'
+		define_in_config_if_yes yes 'USE_ARM_SOUND_ASM'
+		define_in_config_if_yes yes 'USE_ARM_SMUSH_ASM'
+		define_in_config_if_yes yes 'USE_ARM_GFX_ASM'
+		define_in_config_if_yes yes 'USE_ARM_COSTUME_ASM'
+
+		DEFINES="$DEFINES -DARM_TARGET"
+		;;
+	i[3-6]86)
+		echo "x86"
+		_have_x86=yes
+		define_in_config_h_if_yes $_have_x86 'HAVE_X86'
+		;;
+	mips*)
+		echo "MIPS"
+		DEFINES="$DEFINES -DMIPS_TARGET"
+		;;
+	ppc*)
+		echo "PowerPC"
+		DEFINES="$DEFINES -DPPC_TARGET"
+		;;
+	x86_64)
+		echo "x86_64"
 		;;
 	*)
-		_arm_asm=no
+		echo "unknown ($_host_cpu)"
 		;;
 esac
-echo "$_arm_asm"
-define_in_config_if_yes "$_arm_asm" 'USE_ARM_SCALER_ASM'
-define_in_config_if_yes "$_arm_asm" 'USE_ARM_SOUND_ASM'
-define_in_config_if_yes "$_arm_asm" 'USE_ARM_SMUSH_ASM'
-define_in_config_if_yes "$_arm_asm" 'USE_ARM_GFX_ASM'
-define_in_config_if_yes "$_arm_asm" 'USE_ARM_COSTUME_ASM'
 
 
 #
@@ -1775,6 +1811,16 @@ case $_host_os in
 		add_line_to_config_mk "ANDROID_SDK = $ANDROID_SDK"
 		_seq_midi=no
 		;;
+	bada)
+		BADA_SDK_ROOT="`cygpath -m ${BADA_SDK}`"
+		add_line_to_config_mk "BADA_SDK = $BADA_SDK"
+		add_line_to_config_mk "BADA_SDK_ROOT = $BADA_SDK_ROOT"
+
+		# assume dependencies have been installed in cygwin's /usr/local
+		CYGWIN_USR_LOCAL="`cygpath -m /usr/local`"
+		LDFLAGS="$LDFLAGS -L${CYGWIN_USR_LOCAL}/lib"
+		CXXFLAGS="$CXXFLAGS -I${CYGWIN_USR_LOCAL}/include"
+		;;
 	beos*)
 		DEFINES="$DEFINES -DSYSTEM_NOT_SUPPORTING_D_TYPE"
 		# Needs -lbind -lsocket for the timidity MIDI driver
@@ -1792,6 +1838,28 @@ case $_host_os in
 		DEFINES="$DEFINES -DMACOSX"
 		LIBS="$LIBS -framework AudioUnit -framework AudioToolbox -framework Carbon -framework CoreMIDI"
 		add_line_to_config_mk 'MACOSX = 1'
+
+		# Now we may have MacPorts or Fink installed
+		# Which put libraries and headers in non-standard places
+		# Checking them here
+		
+		# MacPorts
+		# There is no way to get the prefix, so implementing a hack here
+		macport_version=`port version 2>/dev/null`
+		if test "$?" -eq 0; then
+			macport_version="`echo "${macport_version}" | sed -ne 's/Version: \([0-9]\.[0-9]\.[0-9]\)/\1/gp'sed -ne 's/Version: \([0-9]\.[0-9]\.[0-9]\)/\1/gp'`"
+			echo_n "You seem to be running MacPorts version ${macport_version}..."
+
+			macport_prefix=`which port`
+			# strip off /bin/port from /opt/local/bin/port
+			macport_prefix=`dirname ${macport_prefix}`
+			macport_prefix=`dirname ${macport_prefix}`
+
+			echo "adding ${macport_prefix} to paths"
+
+			LDFLAGS="-L${macport_prefix}/lib $LDFLAGS"
+			CXXFLAGS="-I${macport_prefix}/include $CXXFLAGS"
+		fi
 		;;
 	dreamcast)
 		DEFINES="$DEFINES -D__DC__"
@@ -1871,6 +1939,9 @@ case $_host_os in
 			CXXFLAGS="$CXXFLAGS $(getconf LFS_CFLAGS 2>/dev/null)"
 		fi
 		;;
+	maemo)
+		DEFINES="$DEFINES -DMAEMO"
+		;;
 	mingw*)
 		DEFINES="$DEFINES -DWIN32"
 		DEFINES="$DEFINES -D__USE_MINGW_ANSI_STDIO=0"
@@ -1902,7 +1973,7 @@ case $_host_os in
 	ps3)
 		# Force use of SDL from the ps3 toolchain
 		_sdlpath="$PS3DEV/portlibs/ppu:$PS3DEV/portlibs/ppu/bin"
-	
+
 		DEFINES="$DEFINES -DPLAYSTATION3"
 		CXXFLAGS="$CXXFLAGS -mcpu=cell -mminimal-toc -I$PS3DEV/psl1ght/ppu/include -I$PS3DEV/portlibs/ppu/include"
 		LDFLAGS="$LDFLAGS -L$PS3DEV/psl1ght/ppu/lib -L$PS3DEV/portlibs/ppu/lib"
@@ -2001,6 +2072,22 @@ if test -n "$_host"; then
 		arm-riscos|linupy)
 			DEFINES="$DEFINES -DLINUPY"
 			;;
+		bada)
+			_unix=yes
+			_backend="bada"
+			_port_mk="backends/platform/bada/bada.mk"
+			if test "$_debug_build" = yes; then
+				_arm_asm=no
+			else
+				_arm_asm=yes
+			fi
+			_taskbar=no
+			_build_scalers=no
+			_seq_midi=no
+			_mt32emu=no
+			_timidity=no
+			_vkeybd=yes
+			;;
 		bfin*)
 			;;
 		caanoo)
@@ -2098,7 +2185,7 @@ if test -n "$_host"; then
 			;;
 		gp2x)
 			# This uses the GPH backend.
-			DEFINES="$DEFINES -DGPH_DEVICE"	
+			DEFINES="$DEFINES -DGPH_DEVICE"
 			DEFINES="$DEFINES -DGP2X"
 			DEFINES="$DEFINES -DREDUCE_MEMORY_USAGE"
 			if test "$_debug_build" = yes; then
@@ -2145,6 +2232,23 @@ if test -n "$_host"; then
 			_ranlib=m68k-atari-mint-ranlib
 			_ar="m68k-atari-mint-ar cru"
 			_seq_midi=no
+			;;
+		maemo)
+			CXXFLAGS="$CXXFLAGS -Os"
+			CXXFLAGS="$CXXFLAGS -mcpu=arm926ej-s"
+			CXXFLAGS="$CXXFLAGS -fomit-frame-pointer"
+			INCLUDES="$INCLUDES -I/usr/X11R6/include"
+			LIBS="$LIBS -lpthread"
+			LIBS="$LIBS -L/usr/lib"
+			
+			_backend="maemo"
+			_vkeybd=yes
+			_build_hq_scalers=no
+			_mt32emu=no
+			_alsa=no
+			_mad=yes
+			_tremor=yes
+			_zlib=yes
 			;;
 		*mingw32*)
 			_sdlconfig=$_host-sdl-config
@@ -2334,6 +2438,34 @@ case $_backend in
 		CXXFLAGS="$CXXFLAGS -Wa,--noexecstack"
 		LDFLAGS="$LDFLAGS -Wl,-z,noexecstack"
 		;;
+  bada)
+		# dirent.h not available. NONSTANDARD_PORT==ensure portdefs.h is included
+		DEFINES="$DEFINES -DBADA -DDISABLE_STDIO_FILESTREAM -DNONSTANDARD_PORT"
+		DEFINES="$DEFINES -DNO_STDERR_STDOUT"
+		DEFINES="$DEFINES -DDISABLE_COMMAND_LINE"
+		INCLUDES="$INCLUDES "'-I$(srcdir)/backends/platform/bada '
+		INCLUDES="$INCLUDES "'-I$(BADA_SDK)/include'
+		INCLUDES="$INCLUDES "'-I$(BADA_SDK_ROOT)/Include'
+		if test "$_debug_build" = yes; then
+			# debug using with the simulator
+			CXXFLAGS="$CXXFLAGS -D_DEBUG -DSHP -DBUILD_DLL -fmessage-length=0"
+		else
+			# created a shared library for inclusion via the eclipse build
+			CXXFLAGS="$CXXFLAGS -DSHP"
+			CXXFLAGS="$CXXFLAGS -fpic"
+			CXXFLAGS="$CXXFLAGS -fshort-wchar"
+			CXXFLAGS="$CXXFLAGS -mcpu=cortex-a8"
+			CXXFLAGS="$CXXFLAGS -mfpu=vfpv3"
+			CXXFLAGS="$CXXFLAGS -mfloat-abi=hard"
+			CXXFLAGS="$CXXFLAGS -mlittle-endian"
+			CXXFLAGS="$CXXFLAGS -mthumb-interwork"
+			CXXFLAGS="$CXXFLAGS -Wno-psabi"
+			CXXFLAGS="$CXXFLAGS -fno-strict-aliasing"
+			CXXFLAGS="$CXXFLAGS -fno-short-enums"
+		fi
+		HOSTEXEPRE=lib
+		HOSTEXEEXT=.a
+		;;
 	dc)
 		INCLUDES="$INCLUDES "'-I$(srcdir)/backends/platform/dc'
 		INCLUDES="$INCLUDES "'-isystem $(ronindir)/include'
@@ -2367,6 +2499,9 @@ case $_backend in
 		;;
 	linuxmoto)
 		DEFINES="$DEFINES -DLINUXMOTO"
+		;;
+	maemo)
+		DEFINES="$DEFINES -DMAEMO"
 		;;
 	n64)
 		INCLUDES="$INCLUDES "'-I$(N64SDK)/include'
@@ -2450,7 +2585,7 @@ MODULES="$MODULES backends/platform/$_backend"
 # Setup SDL specifics for SDL based backends
 #
 case $_backend in
-	dingux | gp2x | gph | linuxmoto | openpandora | samsungtv | sdl)
+	dingux | gp2x | gph | linuxmoto | maemo | openpandora | samsungtv | sdl)
 		find_sdlconfig
 		INCLUDES="$INCLUDES `$_sdlconfig --prefix="$_sdlpath" --cflags`"
 		LIBS="$LIBS `$_sdlconfig --prefix="$_sdlpath" --libs`"
@@ -2473,7 +2608,7 @@ esac
 # Enable 16bit support only for backends which support it
 #
 case $_backend in
-	android | dingux | dreamcast | gph | openpandora | psp | samsungtv | sdl | webos | wii)
+	android | bada | dingux | dreamcast | gph | maemo | openpandora | psp | samsungtv | sdl | webos | wii)
 		if test "$_16bit" = auto ; then
 			_16bit=yes
 		else
@@ -2499,7 +2634,7 @@ case $_host_os in
 	amigaos* | cygwin* | dreamcast | ds | gamecube | mingw* | n64 | ps2 | ps3 | psp | wii | wince)
 		_posix=no
 		;;
-	android | beos* | bsd* | darwin* | freebsd* | gph-linux | haiku* | hpux* | iphone | irix* | linux* | mint* | netbsd* | openbsd* | solaris* | sunos* | uclinux* | webos)
+	android | beos* | bsd* | darwin* | freebsd* | gph-linux | haiku* | hpux* | iphone | irix* | linux* | maemo | mint* | netbsd* | openbsd* | solaris* | sunos* | uclinux* | webos)
 		_posix=yes
 		;;
 	os2-emx*)
@@ -2581,7 +2716,9 @@ POST_OBJS_FLAGS		:= -Wl,--no-whole-archive
 		;;
 	ds)
 		_elf_loader=yes
-		DEFINES="$DEFINES -DARM_TARGET -DELF_LOADER_CXA_ATEXIT -DUNCACHED_PLUGINS -DELF_NO_MEM_MANAGER"
+		DEFINES="$DEFINES -DELF_LOADER_CXA_ATEXIT"
+		DEFINES="$DEFINES -DUNCACHED_PLUGINS"
+		DEFINES="$DEFINES -DELF_NO_MEM_MANAGER"
 _mak_plugins='
 PLUGIN_LDFLAGS		+= -Wl,-T$(srcdir)/backends/plugins/ds/plugin.ld -mthumb-interwork -mno-fpu
 '
@@ -2599,7 +2736,8 @@ POST_OBJS_FLAGS := -Wl,-no-whole-archive
 		;;
 	gamecube | wii)
 		_elf_loader=yes
-		DEFINES="$DEFINES -DPPC_TARGET -DELF_LOADER_CXA_ATEXIT -DUNCACHED_PLUGINS"
+		DEFINES="$DEFINES -DELF_LOADER_CXA_ATEXIT"
+		DEFINES="$DEFINES -DUNCACHED_PLUGINS"
 _mak_plugins='
 PLUGIN_LDFLAGS		+= -Wl,-T$(srcdir)/backends/plugins/wii/plugin.ld
 '
@@ -2616,6 +2754,19 @@ PRE_OBJS_FLAGS  := -Wl,-export-dynamic -Wl,-whole-archive
 POST_OBJS_FLAGS := -Wl,-no-whole-archive
 '
 		;;
+	irix*)
+		_plugin_prefix="lib"
+		_plugin_suffix=".so"
+		CXXFLAGS="$CXXFLAGS -fpic"
+		LIBS="$LIBS -ldl"
+_mak_plugins='
+PLUGIN_EXTRA_DEPS =
+PLUGIN_LDFLAGS  += -shared -static-libgcc
+PRE_OBJS_FLAGS  := -Wl,-export-dynamic -Wl,-whole-archive
+POST_OBJS_FLAGS := -Wl,-no-whole-archive
+'
+		;;
+
 	linux*)
 		_plugin_prefix="lib"
 		_plugin_suffix=".so"
@@ -2652,7 +2803,6 @@ POST_OBJS_FLAGS		:= -Wl,--export-all-symbols -Wl,--no-whole-archive -Wl,--out-im
 		;;
 	ps2)
 		_elf_loader=yes
-		DEFINES="$DEFINES -DMIPS_TARGET"
 _mak_plugins='
 LDFLAGS				+= -mno-crt0 $(PS2SDK)/ee/startup/crt0.o -Wl,-T$(srcdir)/backends/plugins/ps2/main_prog.ld
 PLUGIN_LDFLAGS		+= -mno-crt0 $(PS2SDK)/ee/startup/crt0.o -Wl,-T$(srcdir)/backends/plugins/ps2/plugin.ld -lstdc++ -lc
@@ -2660,7 +2810,7 @@ PLUGIN_LDFLAGS		+= -mno-crt0 $(PS2SDK)/ee/startup/crt0.o -Wl,-T$(srcdir)/backend
 		;;
 	psp)
 		_elf_loader=yes
-		DEFINES="$DEFINES -DMIPS_TARGET -DUNCACHED_PLUGINS"
+		DEFINES="$DEFINES -DUNCACHED_PLUGINS"
 _mak_plugins='
 LDFLAGS				+= -Wl,-T$(srcdir)/backends/plugins/psp/main_prog.ld
 PLUGIN_LDFLAGS		+= -Wl,-T$(srcdir)/backends/plugins/psp/plugin.ld -lstdc++ -lc
@@ -3187,6 +3337,14 @@ EOF
 	fi
 fi
 
+case $_host_os in
+	bada)
+		# components live in non-standard locations so just assume sane SDK
+		_opengl=yes
+		_opengles=yes
+		;;
+esac
+
 if test "$_opengles" = "yes" ; then
 	echo "yes (OpenGL ES)"
 else
@@ -3345,8 +3503,8 @@ case $_backend in
 		# Add ../plugins as a path so plugins can be found when running from a .PND.
 		DEFINES="$DEFINES -DPLUGIN_DIRECTORY=\\\"../plugins\\\""
 		;;
-	webos)
-		# The WebOS app wants the plugins in the "lib" directory
+	maemo | webos)
+		# The WebOS and Maemo apps want the plugins in the "lib" directory
 		# without a scummvm sub directory.
 		DEFINES="$DEFINES -DPLUGIN_DIRECTORY=\\\"$libdir\\\""
 		;;
@@ -3438,7 +3596,7 @@ case $_backend in
 		LIBS="-Wl,-Bstatic $static_libs -Wl,-Bdynamic -lgcc $system_libs -llog -lGLESv1_CM"
 		;;
 	n64)
-		# Move some libs down here, otherwise some symbols requires by libvorbis aren't found 
+		# Move some libs down here, otherwise some symbols requires by libvorbis aren't found
 		# during linking stage
 		LIBS="$LIBS -lc -lgcc -lnosys"
 		;;
@@ -3451,6 +3609,15 @@ esac
 _engines_built_static=""
 _engines_built_dynamic=""
 _engines_skipped=""
+
+# Show a message if looping over engines takes longer than 5 secs
+sh -c "
+	touch config.gnomes
+	sleep 5
+	if test -f config.gnomes; then
+		printf 'Employing little gnomes...'
+		rm -f config.gnomes
+	fi" 2>/dev/null &
 
 for engine in $_engines; do
 	if test "`get_engine_sub $engine`" = "no" ; then
@@ -3515,6 +3682,14 @@ for engine in $_engines; do
 done
 
 add_to_config_h_if_yes `get_var _tainted_build` '#define TAINTED_BUILD'
+
+# Complete the message on slow systems
+if test -f config.gnomes ; then
+	# Kill does not work well here as it produces nasty 'Killed' message
+	rm -rf config.gnomes
+else
+	echo " work is done"
+fi
 
 #
 # Show which engines ("frontends") are to be built

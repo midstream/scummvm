@@ -61,6 +61,7 @@ endif
 ifdef SDL_BACKEND
 MODULE_OBJS += \
 	events/sdl/sdl-events.o \
+	graphics/sdl/sdl-graphics.o \
 	graphics/surfacesdl/surfacesdl-graphics.o \
 	mixer/doublebuffersdl/doublebuffersdl-mixer.o \
 	mixer/sdl/sdl-mixer.o \
@@ -116,6 +117,11 @@ MODULE_OBJS += \
 	mixer/sdl13/sdl13-mixer.o
 endif
 
+ifeq ($(BACKEND),bada)
+MODULE_OBJS += \
+	timer/bada/timer.o
+endif
+
 ifeq ($(BACKEND),ds)
 MODULE_OBJS += \
 	fs/ds/ds-fs.o \
@@ -139,6 +145,11 @@ ifeq ($(BACKEND),linuxmoto)
 MODULE_OBJS += \
 	events/linuxmotosdl/linuxmotosdl-events.o \
 	graphics/linuxmotosdl/linuxmotosdl-graphics.o
+endif
+
+ifeq ($(BACKEND),maemo)
+MODULE_OBJS += \
+	events/maemosdl/maemosdl-events.o
 endif
 
 ifeq ($(BACKEND),n64)

@@ -49,11 +49,22 @@ reg_t SoundCommandParser::kDoSoundInit(int argc, reg_t *argv, reg_t acc) {
 	return acc;
 }
 
-void SoundCommandParser::processInitSound(reg_t obj) {
-	int resourceId = readSelectorValue(_segMan, obj, SELECTOR(number));
+int SoundCommandParser::getSoundResourceId(reg_t obj) {
+	int resourceId = obj.segment ? readSelectorValue(_segMan, obj, SELECTOR(number)) : -1;
 	// Modify the resourceId for the Windows versions that have an alternate MIDI soundtrack, like SSCI did.
-	if (g_sci && g_sci->_features->useAltWinGMSound())
-		resourceId += 1000;
+	if (g_sci && g_sci->_features->useAltWinGMSound()) {
+		// Check if the alternate MIDI song actually exists...
+		// There are cases where it just doesn't exist (e.g. SQ4, room 530 -
+		// bug #3392767). In these cases, use the DOS tracks instead.
+		if (resourceId && _resMan->testResource(ResourceId(kResourceTypeSound, resourceId + 1000)))
+			resourceId += 1000;
+	}
+
+	return resourceId;
+}
+
+void SoundCommandParser::processInitSound(reg_t obj) {
+	int resourceId = getSoundResourceId(obj);
 
 	// Check if a track with the same sound object is already playing
 	MusicEntry *oldSound = _music->getSlot(obj);
@@ -119,14 +130,17 @@ reg_t SoundCommandParser::kDoSoundPlay(int argc, reg_t *argv, reg_t acc) {
 void SoundCommandParser::processPlaySound(reg_t obj) {
 	MusicEntry *musicSlot = _music->getSlot(obj);
 	if (!musicSlot) {
-		warning("kDoSound(play): Slot not found (%04x:%04x)", PRINT_REG(obj));
-		return;
+		warning("kDoSound(play): Slot not found (%04x:%04x), initializing it manually", PRINT_REG(obj));
+		// The sound hasn't been initialized for some reason, so initialize it here.
+		// Happens in KQ6, room 460, when giving the creature to the bookwork (the
+		// bookworm's child). Fixes bug #3413301.
+		processInitSound(obj);
+		musicSlot = _music->getSlot(obj);
+		if (!musicSlot)
+			error("Failed to initialize uninitialized sound slot");
 	}
 
-	int resourceId = obj.segment ? readSelectorValue(_segMan, obj, SELECTOR(number)) : -1;
-	// Modify the resourceId for the Windows versions that have an alternate MIDI soundtrack, like SSCI did.
-	if (g_sci && g_sci->_features->useAltWinGMSound())
-		resourceId += 1000;
+	int resourceId = getSoundResourceId(obj);
 
 	if (musicSlot->resourceId != resourceId) { // another sound loaded into struct
 		processDisposeSound(obj);
@@ -618,13 +632,10 @@ reg_t SoundCommandParser::kDoSoundSetPriority(int argc, reg_t *argv, reg_t acc) 
 	}
 
 	if (value == -1) {
-		uint16 resourceNr = musicSlot->resourceId;
-		// Modify the resourceId for the Windows versions that have an alternate MIDI soundtrack, like SSCI did.
-		if (g_sci && g_sci->_features->useAltWinGMSound())
-			resourceNr += 1000;
+		uint16 resourceId = musicSlot->resourceId;
 
 		// Set priority from the song data
-		Resource *song = _resMan->findResource(ResourceId(kResourceTypeSound, resourceNr), 0);
+		Resource *song = _resMan->findResource(ResourceId(kResourceTypeSound, resourceId), 0);
 		if (song->data[0] == 0xf0)
 			_music->soundSetPriority(musicSlot, song->data[1]);
 		else
